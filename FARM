@@ -1,0 +1,464 @@
+local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Function to invoke the remote function for setting slot properties
+local function setSlotProperties(toolKind, category)
+    local args = {
+        [1] = 1,
+        [2] = {
+            ["kind"] = toolKind,
+            ["category"] = category
+        }
+    }
+
+    local remoteFunction = replicatedStorage:FindFirstChild("API"):FindFirstChild("ToolAPI/SetSlotProperties")
+
+    if remoteFunction then
+        print("Invoking SetSlotProperties for", toolKind, "...")
+        remoteFunction:InvokeServer(unpack(args))
+    else
+        warn("SetSlotProperties function not found!")
+    end
+end
+
+-- Function to find tool buttons in ToolContainer
+local function findToolContainerButtons()
+    local toolApp = playerGui:WaitForChild("ToolApp")
+    local frame = toolApp:WaitForChild("Frame")
+    local hotbar = frame:WaitForChild("Hotbar")
+    local toolContainer = hotbar:WaitForChild("ToolContainer")
+
+    -- Collect all ImageButtons inside ToolContainer (excluding Close)
+    local buttons = {}
+    for _, child in pairs(toolContainer:GetChildren()) do
+        if child:IsA("ImageButton") and child.Name ~= "Close" then
+            table.insert(buttons, child)
+        end
+    end
+
+    -- Find the Close button
+    local closeButton = toolContainer:FindFirstChild("Close")
+
+    return buttons, closeButton
+end
+
+-- Function to safely trigger button clicks
+local function fireConnections(event)
+    if event then
+        local connections = getconnections(event)
+        if connections then
+            for _, connection in pairs(connections) do
+                connection:Fire()
+            end
+        end
+    end
+end
+
+-- Function to simulate clicking a button
+local function simulateClick(button)
+    if button then
+        fireConnections(button.MouseButton1Down)
+        wait(0.1)
+        fireConnections(button.MouseButton1Click)
+        wait(0.1)
+        fireConnections(button.MouseButton1Up)
+    else
+        warn("Invalid button passed to simulateClick!")
+    end
+end
+
+-- Function to click a button 10 times and then hold it
+local function clickButtonAndHold(button, closeButton, jumpDuringHold)
+    if button then
+        print("Clicking and holding button:", button.Name)
+
+        -- Click the button 10 times
+        for i = 1, 10 do
+            print("Clicking", button.Name, "(", i, "/ 10 )")
+            simulateClick(button)
+            wait(0.5) -- Small delay between clicks
+        end
+
+        -- Hold the button while optionally jumping
+        fireConnections(button.MouseButton1Down)
+
+        if jumpDuringHold then
+            local player = game:GetService("Players").LocalPlayer
+            local character = player.Character or player.CharacterAdded:Wait()  -- Wait for character to load
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+            if humanoid then
+                local originalJumpPower = humanoid.JumpPower  -- Store the original jump power
+                humanoid.JumpPower = 300  -- Adjust jump power for high jumps
+
+                -- Jump periodically while holding the button
+                for i = 1, 10 do
+                    wait(3)  -- Wait for 3 seconds between jumps
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+
+                humanoid.JumpPower = originalJumpPower  -- Restore original jump power
+            else
+                warn("No humanoid found in character!")
+            end
+        end
+
+        -- Click the Close button after the hold duration
+        if closeButton then
+            print("Clicking Close button.")
+            simulateClick(closeButton)
+        else
+            warn("Close button not found!")
+        end
+
+        -- Release the button
+        fireConnections(button.MouseButton1Up)
+        print("Released button:", button.Name)
+    else
+        warn("Invalid button passed to clickButtonAndHold!")
+    end
+end
+
+-- Function to process the tool (e.g., bone or stroller)
+local function processTool(toolKind, category, jumpDuringHold)
+    -- Set the properties for the specific tool
+    setSlotProperties(toolKind, category)
+    wait(2) -- Wait for the changes to take effect
+
+    -- Find tool buttons and the Close button
+    local toolButtons, closeButton = findToolContainerButtons()
+
+    if #toolButtons > 0 then
+        print("Found", #toolButtons, "buttons in ToolContainer.")
+        
+        -- Iterate through each tool button
+        for _, toolButton in ipairs(toolButtons) do
+            clickButtonAndHold(toolButton, closeButton, jumpDuringHold)
+            wait(1) -- Wait 1 second before moving to the next button
+        end
+
+        print("All tool buttons processed for", category)
+    else
+        warn("No tool buttons found in ToolContainer!")
+    end
+end
+
+-- Function to find a child model based on its name recursively
+local function findDescendantByName(parent, name)
+    for _, child in ipairs(parent:GetChildren()) do
+        if child.Name == name then
+            return child
+        elseif child:IsA("Model") then
+            local descendant = findDescendantByName(child, name)
+            if descendant then
+                return descendant
+            end
+        end
+    end
+    return nil
+end
+
+-- Function to remove old interiors safely
+local function deleteModel()
+    local interiors = workspace:FindFirstChild("Interiors")
+    if interiors and interiors:IsA("Folder") then
+        for _, child in ipairs(interiors:GetChildren()) do
+            if child:IsA("Model") then
+                child:Destroy()
+                print("✅ Destroyed old model: " .. child.Name)
+            end
+        end
+    else
+        warn("Interiors folder not found or is not a Folder instance")
+    end
+end
+
+-- Function to set up the InteriorOrigin correctly and add a black image
+local function setupInteriorOrigin(interiorPart, imageId)
+    if interiorPart and interiorPart:IsA("Part") then
+        if interiorPart.Size.X < 100 and interiorPart.Size.Z < 100 then
+            interiorPart.Size = Vector3.new(100, 1, 100)
+        end
+        interiorPart.Transparency = 0
+        interiorPart.CanCollide = false
+        interiorPart.Anchored = true
+        
+        local surfaceGui = Instance.new("SurfaceGui", interiorPart)
+        surfaceGui.Face = Enum.NormalId.Top
+        surfaceGui.AlwaysOnTop = true
+        
+        local imageLabel = Instance.new("ImageLabel", surfaceGui)
+        imageLabel.Size = UDim2.new(1, 0, 1, 0)
+        imageLabel.Image = imageId
+        imageLabel.BackgroundTransparency = 1
+        imageLabel.ImageColor3 = Color3.new(0, 0, 0)
+
+        print("✅ Added image to " .. interiorPart.Name)
+    else
+        warn("InteriorOrigin is not a valid part")
+    end
+end
+
+-- Function to teleport the character smoothly
+local function teleportCharacter(character, targetPart)
+    if character and character:IsA("Model") and character.PrimaryPart then
+        if targetPart and targetPart:IsA("BasePart") then
+            print("🚀 Teleporting character to: ", targetPart.Position)
+            character:SetPrimaryPartCFrame(targetPart.CFrame * CFrame.new(0, targetPart.Size.Y + 5, 0))
+            print("✅ Character teleported to: ", character.PrimaryPart.Position)
+        else
+            warn("Target part does not exist or is not a BasePart")
+        end
+    else
+        warn("Character is invalid or does not have a PrimaryPart.")
+    end
+end
+
+-- Function to create a timer UI for a specified duration
+local function createTimerUI(player, duration)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "TimerUI"
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+
+    local timerLabel = Instance.new("TextLabel")
+    timerLabel.Size = UDim2.new(0, 200, 0, 50)
+    timerLabel.Position = UDim2.new(0.5, -100, 0.5, -25)
+    timerLabel.BackgroundColor3 = Color3.new(0, 0, 0)
+    timerLabel.TextColor3 = Color3.new(1, 1, 1)
+    timerLabel.Font = Enum.Font.SourceSans
+    timerLabel.TextSize = 30
+    timerLabel.Text = tostring(duration) .. " seconds remaining"
+    timerLabel.Parent = screenGui
+
+    -- Countdown logic
+    for i = duration, 1, -1 do
+        wait(1)
+        timerLabel.Text = tostring(i) .. " seconds remaining"
+    end
+
+    -- Hide and remove the UI after the countdown
+    screenGui:Destroy()
+end
+
+-- Function to load and teleport to an interior
+local function loadInterior(interiorName, imageId)
+    print("✅ Loading Interior: " .. interiorName)
+    deleteModel()
+
+    local args = { "Interiors", interiorName }
+    local downloadAPI = game:GetService("ReplicatedStorage").API:FindFirstChild("DownloadsAPI/Download")
+    if downloadAPI then
+        local success, errorMessage = pcall(function()
+            downloadAPI:InvokeServer(unpack(args))
+        end)
+        if not success then
+            warn("Failed to invoke download API: " .. errorMessage)
+            return
+        end
+    else
+        warn("DownloadsAPI/Download not found")
+        return
+    end
+
+    wait(4)
+
+    local setLocationAPI = game:GetService("ReplicatedStorage").API:FindFirstChild("LocationAPI/SetLocation")
+    if setLocationAPI then
+        local success, errorMessage = pcall(function()
+            setLocationAPI:FireServer(interiorName)
+        end)
+        if not success then
+            warn("Failed to set location: " .. errorMessage)
+            return
+        end
+    else
+        warn("LocationAPI/SetLocation not found")
+        return
+    end
+
+    local player = game:GetService("Players").LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+
+    local gui = player.PlayerGui:FindFirstChild(interiorName)
+    if gui then
+        local targetFolder = workspace:FindFirstChild("Interiors")
+        if targetFolder then
+            local guiClone = gui:Clone()
+            guiClone.Parent = targetFolder
+            gui:Destroy()
+            print("✅ Moved GUI to Interiors folder")
+        else
+            warn("Interiors folder not found in workspace")
+        end
+    else
+        warn(interiorName .. " GUI element not found in PlayerGui")
+    end
+
+    local targetModel = workspace.Interiors:FindFirstChild(interiorName)
+    if targetModel then
+        if interiorName == "VIP" then
+            -- Teleport to HotTubOrigin
+            local hotTubOrigin = targetModel:FindFirstChild("HotTubOrigin")
+            if hotTubOrigin then
+                teleportCharacter(character, hotTubOrigin)  -- Teleport to Hot Tub Origin
+                print("✅ Teleported to Hot Tub Origin at: ", hotTubOrigin.Position)
+
+                -- Change destination_id value if it exists
+                local destinationId = targetModel.Doors.MainDoor.WorkingParts.Configuration:FindFirstChild("destination_id")
+                if destinationId and destinationId:IsA("StringValue") then
+                    destinationId.Value = "MainMap"
+                    print("✅ Changed destination_id to 'MainMap'")
+                else
+                    warn("destination_id is not found or is not a StringValue")
+                end
+
+                -- Start the timer UI for 20 seconds
+                createTimerUI(player, 20)
+                wait(20)
+
+                -- Teleport to TouchToEnter
+                local touchToEnter = targetModel.Doors.MainDoor.WorkingParts:FindFirstChild("TouchToEnter")
+                if touchToEnter then
+                    teleportCharacter(character, touchToEnter)  -- Teleport to TouchToEnter
+                    print("✅ Teleported to TouchToEnter")
+
+                    -- Start a 7-second timer before teleporting to CampsiteOrigin
+                    createTimerUI(player, 7)
+                    wait(7)
+
+                    -- Teleporting to CampsiteOrigin
+                    local campsiteOrigin = workspace.StaticMap.Campsite.CampsiteOrigin
+                    if campsiteOrigin then
+                        teleportCharacter(character, campsiteOrigin)
+                        print("✅ Teleported to CampsiteOrigin at: ", campsiteOrigin.Position)
+
+                        -- Start a 10-second timer after arriving at the Campsite
+                        createTimerUI(player, 10)
+                        wait(10)
+
+                        -- Teleporting to BoredAilmentTarget
+                        local boredAilmentTarget = workspace.StaticMap.Park.BoredAilmentTarget
+                        if boredAilmentTarget then
+                            teleportCharacter(character, boredAilmentTarget)
+                            print("✅ Teleported to BoredAilmentTarget at: ", boredAilmentTarget.Position)
+
+                            -- Start a 10-second timer after arriving at BoredAilmentTarget
+                            createTimerUI(player, 10)
+                            wait(10) 
+
+                            -- Teleporting to BeachPartyAilmentTarget
+                            local beachPartyAilmentTarget = workspace.StaticMap.Beach.BeachPartyAilmentTarget
+                            if beachPartyAilmentTarget then
+                                teleportCharacter(character, beachPartyAilmentTarget)
+                                print("✅ Teleported to BeachPartyAilmentTarget at: ", beachPartyAilmentTarget.Position)
+
+                                -- Start a 10-second timer after arriving at BeachPartyAilmentTarget
+                                createTimerUI(player, 10)
+                                wait(10)
+
+                                -- Implement the new Spawn API logic here
+                                -- Call the Spawn API
+                                local spawnAPI = game:GetService("ReplicatedStorage").API:FindFirstChild("TeamAPI/Spawn")
+                                if spawnAPI then
+                                    spawnAPI:InvokeServer()
+                                    print("✅ Spawn API called.")
+
+                                    -- Wait for the character to load after spawning
+                                    local newCharacter = player.Character or player.CharacterAdded:Wait() -- Wait for character to be added
+
+                                    -- Create a green platform
+                                    local greenPlatform = Instance.new("Part")
+                                    greenPlatform.Size = Vector3.new(50, 1, 50) -- Define size for the green platform
+                                    greenPlatform.Position = Vector3.new(0, 10, 0) -- Position the green platform
+                                    greenPlatform.Color = Color3.new(0, 1, 0) -- Set color to green
+                                    greenPlatform.Anchored = true
+                                    greenPlatform.Parent = workspace
+
+                                    -- Wait for 20 seconds while printing progress
+                                    for i = 20, 1, -1 do
+                                        print("Waiting to teleport in " .. i .. " seconds...")
+                                        wait(1) -- Wait for 1 second in each loop iteration
+                                    end
+
+                                    -- After waiting, teleport character to the green platform
+                                    if newCharacter and newCharacter:FindFirstChild("HumanoidRootPart") then
+                                        -- Calculate teleport position above the green platform
+                                        local humanoidHeight = newCharacter.Humanoid.HipHeight
+                                        local teleportPosition = greenPlatform.Position + Vector3.new(0, humanoidHeight / 2 + 5, 0) -- Adjust height to avoid clipping
+
+                                        -- Set the character's position
+                                        newCharacter:SetPrimaryPartCFrame(CFrame.new(teleportPosition)) -- Teleport the character to the calculated position
+                                        print("Character teleported to the green platform.")
+
+                                        -- **Process Tools After Reaching Green Platform**
+                                        processTool("squeaky_bone_default", "toys", false) -- Click bone tool 10 times
+                                        wait(1) -- Wait before switching to the next tool
+                                        processTool("stroller-default", "strollers", true) -- Click stroller tool and jump
+                                    else
+                                        warn("Character not found after spawning or HumanoidRootPart is missing.")
+                                    end
+                                else
+                                    warn("Spawn API not found at the specified path.")
+                                end
+                            else
+                                warn("BeachPartyAilmentTarget not found in workspace.StaticMap.Beach")
+                            end
+                        else
+                            warn("BoredAilmentTarget not found in workspace.StaticMap.Park")
+                        end
+                    else
+                        warn("CampsiteOrigin not found in workspace.StaticMap.Campsite")
+                    end
+                else
+                    warn("TouchToEnter part not found")
+                end
+            else
+                warn("HotTubOrigin not found in VIP")
+            end
+        else
+            -- Handle case for interiors that are not VIP
+            local teleportPart = targetModel:FindFirstChild("InteriorOrigin")
+            if teleportPart then
+                print("🚀 Teleporting character to InteriorOrigin at: ", teleportPart.Position)
+                teleportCharacter(character, teleportPart)  
+                print("✅ Teleported to InteriorOrigin at: ", teleportPart.Position)
+                wait(10) 
+            else
+                warn("InteriorOrigin not found")
+            end
+        end
+
+        if targetModel and interiorName ~= "VIP" then
+            local teleportPart = targetModel:FindFirstChild("InteriorOrigin")
+            if teleportPart then
+                setupInteriorOrigin(teleportPart, imageId)
+            end
+        end
+    else
+        warn(interiorName .. " not found in workspace.Interiors")
+    end
+
+    wait(7)  -- Delay before possible next action
+end
+
+-- Define Image IDs for each interior
+local interiorImages = {
+    PizzaShop = "rbxassetid://18861596457",
+    Salon = "rbxassetid://18861596457",
+    School = "rbxassetid://18861596457",
+    VIP = "rbxassetid://18861596457"
+}
+
+-- Table of interiors that should be loaded
+local interiors = {
+    { name = "PizzaShop" },
+    { name = "Salon" },
+    { name = "School" },
+    { name = "VIP" }
+}
+
+-- Load each interior from the table
+for _, interior in ipairs(interiors) do
+    local imageId = interiorImages[interior.name] or "rbxassetid://DEFAULT_IMAGE_ID"
+    loadInterior(interior.name, imageId)
+end
