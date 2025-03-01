@@ -1,0 +1,150 @@
+local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+local replicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Function to invoke the remote function for setting slot properties
+local function setSlotProperties(toolKind, category)
+    local args = {
+        [1] = 1,
+        [2] = {
+            ["kind"] = toolKind,
+            ["category"] = category
+        }
+    }
+
+    local remoteFunction = replicatedStorage:FindFirstChild("API"):FindFirstChild("ToolAPI/SetSlotProperties")
+
+    if remoteFunction then
+        print("Invoking SetSlotProperties for", toolKind, "...")
+        remoteFunction:InvokeServer(unpack(args))
+    else
+        warn("SetSlotProperties function not found!")
+    end
+end
+
+-- Function to find tool buttons in ToolContainer
+local function findToolContainerButtons()
+    local toolApp = playerGui:WaitForChild("ToolApp")
+    local frame = toolApp:WaitForChild("Frame")
+    local hotbar = frame:WaitForChild("Hotbar")
+    local toolContainer = hotbar:WaitForChild("ToolContainer")
+
+    -- Collect all ImageButtons inside ToolContainer (excluding Close)
+    local buttons = {}
+    for _, child in pairs(toolContainer:GetChildren()) do
+        if child:IsA("ImageButton") and child.Name ~= "Close" then
+            table.insert(buttons, child)
+        end
+    end
+
+    -- Find the Close button
+    local closeButton = toolContainer:FindFirstChild("Close")
+
+    return buttons, closeButton
+end
+
+-- Function to safely trigger button clicks
+local function fireConnections(event)
+    if event then
+        local connections = getconnections(event)
+        if connections then
+            for _, connection in pairs(connections) do
+                connection:Fire()
+            end
+        end
+    end
+end
+
+-- Function to simulate clicking a button
+local function simulateClick(button)
+    if button then
+        fireConnections(button.MouseButton1Down)
+        wait(0.1)
+        fireConnections(button.MouseButton1Click)
+        wait(0.1)
+        fireConnections(button.MouseButton1Up)
+    else
+        warn("Invalid button passed to simulateClick!")
+    end
+end
+
+-- Function to click a button 10 times and then hold it
+local function clickButtonAndHold(button, closeButton, jumpDuringHold)
+    if button then
+        print("Clicking and holding button:", button.Name)
+
+        -- Click the button 10 times
+        for i = 1, 10 do
+            print("Clicking", button.Name, "(", i, "/ 10 )")
+            simulateClick(button)
+            wait(0.5) -- Small delay between clicks
+        end
+
+        -- Hold the button while optionally jumping
+        fireConnections(button.MouseButton1Down)
+
+        if jumpDuringHold then
+            local player = game:GetService("Players").LocalPlayer
+            local character = player.Character or player.CharacterAdded:Wait()  -- Wait for character to load
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+            if humanoid then
+                local originalJumpPower = humanoid.JumpPower  -- Store the original jump power
+                humanoid.JumpPower = 300  -- Set a higher jump power for much higher jumps
+
+                -- Jump periodically while holding the button
+                for i = 1, 10 do
+                    wait(3)  -- Wait for 3 seconds between jumps
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+
+                humanoid.JumpPower = originalJumpPower  -- Restore original jump power
+            else
+                warn("No humanoid found in character!")
+            end
+        end
+
+        -- Click the Close button after the hold duration
+        if closeButton then
+            print("Clicking Close button.")
+            simulateClick(closeButton)
+        else
+            warn("Close button not found!")
+        end
+
+        -- Release the button
+        fireConnections(button.MouseButton1Up)
+        print("Released button:", button.Name)
+    else
+        warn("Invalid button passed to clickButtonAndHold!")
+    end
+end
+
+-- Function to process the tool (e.g., bone or stroller)
+local function processTool(toolKind, category, jumpDuringHold)
+    -- Set the properties for the specific tool
+    setSlotProperties(toolKind, category)
+    wait(2) -- Wait for the changes to take effect
+
+    -- Find tool buttons and the Close button
+    local toolButtons, closeButton = findToolContainerButtons()
+
+    if #toolButtons > 0 then
+        print("Found", #toolButtons, "buttons in ToolContainer.")
+        
+        -- Iterate through each tool button
+        for _, toolButton in ipairs(toolButtons) do
+            clickButtonAndHold(toolButton, closeButton, jumpDuringHold)
+            wait(1) -- Wait 1 second before moving to the next button
+        end
+
+        print("All tool buttons processed for", category)
+    else
+        warn("No tool buttons found in ToolContainer!")
+    end
+end
+
+-- First, process the bone with 10 clicks
+processTool("squeaky_bone_default", "toys", false) -- No jumping for bone
+
+-- Then, process the stroller with jumps
+processTool("stroller-default", "strollers", true) -- Enable jumping for stroller
